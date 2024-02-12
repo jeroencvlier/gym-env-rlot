@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "gym-env-rlot"
+version = "0.1.0"
+description = ""
+authors = ["Jeroen van Lier <jeroencvlier@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+gymnasium = "^0.28.1"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.2"
+ray = {extras = ["rllib"], version = "^2.9.2"}
+torch = "^2.2.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
