@@ -5,7 +5,9 @@ from gymnasium.spaces import Discrete, Box
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
+
 def load_data(artifact_path, test_train, test_size, noise_factor):
+
     df = pd.read_parquet(artifact_path)
     df.set_index("humanTime", inplace=True)
     pd.set_option("display.max_columns", None)
@@ -51,8 +53,6 @@ def calculate_maximum_drawdown(cumulative_pnl):
     return maximum_drawdown
 
 
-
-
 class BuySellUndEnv(gym.Env):
     def __init__(self, config):
         super(BuySellUndEnv, self).__init__()
@@ -62,7 +62,7 @@ class BuySellUndEnv(gym.Env):
         self.max_episode_steps = 500
 
         self.data, self.scaler_price = load_data(
-            config["data_path"],
+            config["artifact_path"],
             self.test_train,
             test_size=self.max_episode_steps + 1,
             noise_factor=self.noise_factor,

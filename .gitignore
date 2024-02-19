@@ -9,7 +9,9 @@ __pycache__/
 # wandb logs and artifacts
 wandb/
 artifacts/
+models/
 
+.DS_Store
 # Distribution / packaging
 .Python
 build/
