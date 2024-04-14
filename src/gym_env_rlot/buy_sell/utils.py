@@ -5,8 +5,8 @@ import seaborn as sns
 import numpy as np
 import wandb
 from ray.rllib.algorithms import PPOConfig
-from gym_env_rlot.buy_sell.gym_env import BuySellUndEnv
-from gym_env_rlot.buy_sell.gym_env import calculate_maximum_drawdown
+from src.gym_env_rlot.buy_sell.gym_env import BuySellUndEnv
+from src.gym_env_rlot.buy_sell.gym_env import calculate_maximum_drawdown
 import logging
 
 
@@ -77,58 +77,39 @@ def softmax(logits):
 def backtest_proba(
     algo: PPOConfig,
     all_unseen: str,
-    artifact_path: str,
-    probas: list = [0.5, 0.7, 0.9],
     buyhold: bool = False,
+    env_backtest: BuySellUndEnv = None,
 ) -> list:
     logging.info(f"Backtesting {all_unseen} data")
-    if all_unseen == "unseen":
-        tt = "test"
-    if all_unseen == "all":
-        tt = "all"
-
-    env_backtest = BuySellUndEnv({"artifact_path": artifact_path, "test_train": tt})
     plot_probas_dict = {}
+    plot_adjusted_pl = {}
     test_metrics = {}
-    for proba in probas:
-        observation, _ = env_backtest.reset()
-        previous_action = 0
-        while not env_backtest.done:
-            if buyhold:
-                action = 1
-            else:
-                if previous_action == 1:
-                    action = algo.compute_single_action(observation, explore=False)
-                else:
-                    # TODO: Exit trade at various probabilities
-                    # TODO: Experimetn with different probabilities on exit
-                    action_probas = softmax(
-                        algo.compute_single_action(
-                            observation, explore=False, full_fetch=True
-                        )[2]["action_dist_inputs"]
-                    )
-                    action = 1 if action_probas[1] > proba else 0
+    observation, _ = env_backtest.reset()
+    while not env_backtest.done:
+        if buyhold:
+            action = 1
+        else:
+            action = algo.compute_single_action(observation, explore=False)
 
-            observation, reward, done, truncated, info = env_backtest.step(action)
-            previous_action = action
+        observation, reward, done, truncated, info = env_backtest.step(action)
+        previous_action = action
 
-        running_pl_list = env_backtest.running_pl_list
-        # log merrics
-        proba_str = str(int(proba * 100))
+    running_pl_list = env_backtest.running_pl_list
+    running_pl_adjusted = env_backtest.running_pl_adjusted_list
+    # log merrics
+    wandb.run.summary[f"drawdown_{all_unseen}"] = round(env_backtest.drawdown, 4)
+    wandb.run.summary[f"trades_{all_unseen}"] = env_backtest.total_trades
+    wandb.run.summary[f"pct_rpL_{all_unseen}"] = env_backtest.pct_pl_running
 
-        wandb.run.summary[f"drawdown_{all_unseen}_{proba_str}"] = round(
-            env_backtest.drawdown, 4
-        )
-        wandb.run.summary[f"total_trades_{all_unseen}_{proba_str}"] = (
-            env_backtest.total_trades
-        )
-        if proba == 0.5:
-            test_metrics.update(
-                {"drawdown": round(env_backtest.drawdown, 4), "pL": running_pl_list[-1]}
-            )
+    test_metrics.update(
+        {"drawdown": round(env_backtest.drawdown, 4), "pL": running_pl_list[-1]}
+    )
 
-        wandb.run.summary[f"end_pL_{all_unseen}_{proba_str}"] = running_pl_list[-1]
-        plot_probas_dict.update({f"pL_{proba_str}": running_pl_list})
+    wandb.run.summary[f"pL_{all_unseen}"] = running_pl_list[-1]
+    wandb.run.summary[f"pL_adj_{all_unseen}"] = running_pl_adjusted[-1]
+
+    plot_probas_dict.update({f"pL": running_pl_list})
+    plot_adjusted_pl.update({f"pL_adjusted": running_pl_adjusted})
 
     # log backtest plots
     wandb.log(
@@ -142,13 +123,24 @@ def backtest_proba(
             ),
         }
     )
+    wandb.log(
+        {
+            f"backtest_adjusted_{all_unseen}": wandb.plot.line_series(
+                xs=[[*range(env_backtest.position)] for _ in plot_adjusted_pl],
+                ys=[list(v) for k, v in plot_adjusted_pl.items()],
+                keys=list(plot_adjusted_pl.keys()),
+                title=f"Backtest Adjusted {all_unseen.capitalize()}",
+                xname="Steps",
+            ),
+        }
+    )
 
     return test_metrics
 
 
-def data_artifact_download():
+def data_artifact_download(artifact_version):
+    # "delta_bin:v0", "percentage_bin:v1"
     wandb.init(project="rlot", job_type="artifact download")
-    artifact_version = "delta_bin:v0"
     artifact_path = wandb.use_artifact(artifact_version).download()
     wandb.finish()
     return artifact_path
