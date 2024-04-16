@@ -93,6 +93,8 @@ class BuySellUndEnv(gym.Env):
             self.obs += np.random.normal(0, self.noise_ratio, len(self.obs))
             self.obs = np.clip(self.obs, -1, 1)
         self.obs = np.append(self.obs, [trade_pl, self.in_trade])
+        # assert everything is a float32
+        self.obs = np.array(self.obs, dtype=np.float32)
         return self.obs
 
     def trade_pl_(self):
@@ -142,13 +144,16 @@ class BuySellUndEnv(gym.Env):
         self.drawdown_pct = calculate_maximum_drawdown(self.running_pl_pct_list)
 
         # self.reward -= self.drawdown
-        # self.reward -= self.drawdown_pct
+        self.reward -= self.drawdown
 
-        info = {"total_pl": self.total_pl, "trade_count": self.trade_count}
 
         self.reward = round(self.reward, 6)
         self.trade_pl = round(self.trade_pl, 3)
         self.running_pl = round(self.total_pl + self.trade_pl, 3)
+        
+        
+        info = {"total_pl": self.total_pl, "trade_count": self.trade_count}
+
         return self.obs_(), self.reward, self.done, False, info
 
     def reset(self, *, seed=42, options=None):
@@ -225,9 +230,9 @@ if __name__ == "__main__":
             if env.steps % 4 == 0:
                 # alternate action between 0 and 1 every 5 steps
                 if action == 0:
-                    action = 1
+                    action = 1.0
                 elif action == 1:
-                    action = 0
+                    action = 0.0
 
             obs, reward, done, truncated, info = env.step(action)
             env_states.append(env.env_state())
@@ -238,14 +243,14 @@ if __name__ == "__main__":
     pd.set_option("display.max_columns", None, "display.max_rows", 50)
 
     df = pd.DataFrame(env_states)
-    df["underlying_price_cstual"] = (
+    df["underlying_price_actual"] = (
         df["underlying_price"] - df["underlying_price"].iloc[0]
     )
     # calculate the difference from each row
-    df["row_diff"] = df["underlying_price_cstual"].diff()
+    df["row_diff"] = df["underlying_price_actual"].diff()
 
     # plot running_pl and underlying_price_adj
-    df[["running_pl", "underlying_price_cstual"]].plot()
+    df[["running_pl", "underlying_price_actual"]].plot()
 
     # line plot the rewards
     df["reward"].plot()
@@ -260,7 +265,9 @@ if __name__ == "__main__":
                 "row_diff",
                 "trade_pl",
                 "underlying_price",
-                "underlying_price_cstual",
+                "underlying_price_actual",
             ]
         ].head(25)
     )
+
+    env.observation_space.sample()

@@ -14,7 +14,7 @@ from src.gym_env_rlot.buy_sell.gym_env import BuySellUndEnv
 from src.gym_env_rlot.buy_sell.utils import backtest_proba, data_artifact_download
 import json
 
-
+logging.basicConfig(level=logging.INFO)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
@@ -38,36 +38,69 @@ class MultiEnv(gym.Env):
         return self.env.step(action)
 
 
+def test_env(algo, config):
+    env = BuySellUndEnv(config)
+    obs = env.reset()
+    done = False
+    while not done:
+        action = algo.compute_single_action(obs)
+        help(algo)
+        obs, reward, done, truncated, info = env.step(action)
+        if done:
+            break
+
+    return info["total_pl"]
+
+
 check_point_path = os.path.join(os.getcwd(), "models", "PPO")
 artifact_file_name = "jeroencvlier/rlot-data-pipeline/desc_stats_nounderlying:latest"
 project_name = "PPO-tune-v0"
 
 artifact_path = data_artifact_download(artifact_file_name)
-ray.init(ignore_reinit_error=True, num_cpus=11, num_gpus=0)
-register_env("buysellmulti_env", lambda config: MultiEnv(config))
 
 
-algo = (
-    PPOConfig()
-    .environment(
-        BuySellUndEnv,
-        env_config={"artifact_path": artifact_path, "test_train": "train"},
+try:
+    ray.init(ignore_reinit_error=True, num_cpus=11, num_gpus=0)
+    register_env("buysellmulti_env", lambda config: MultiEnv(config))
+
+    algo = (
+        PPOConfig()
+        .environment(
+            BuySellUndEnv,
+            env_config={
+                "artifact_path": artifact_path,
+                "test_train": "train",
+                "ticker": "SPY",
+            },
+        )
+        .framework("torch")
+        .rollouts(num_rollout_workers=10, num_envs_per_worker=1)
+        .build()
     )
-    .framework("torch")
-    .rollouts(num_rollout_workers=11, num_envs_per_worker=1)
-    .build()
-)
+    wandb.init(project=project_name, job_type="PPO-Training")
 
-wandb.init(project=project_name, job_type="PPO-Training", name="Iteration BuyHold Tune")
+    # train the agent
+    for test_it in tqdm(range(1, 10000)):
 
-# train the agent
-for test_it in tqdm(range(1, 1000)):
-    logging.info(f"Starting Iteration {test_it}...")
-    wandb.init(project=project_name, job_type="PPO", name=f"Iteration {test_it}")
-
-    for i in range(10):
         result = algo.train()
+        test1_pl = test_env(
+            algo,
+            {"artifact_path": artifact_path, "test_train": "test1", "ticker": "SPY"},
+        )
+        test2_pl = test_env(
+            algo,
+            {"artifact_path": artifact_path, "test_train": "test2", "ticker": "SPY"},
+        )
+        wandb.log(
+            {
+                "reward": result["episode_reward_mean"],
+                "test1_pl": test1_pl,
+                "test2_pl": test2_pl,
+            }
+        )
+except Exception as err:
+    print(err)
 
-
-ray.shutdown()
-wandb.finish()
+finally:
+    ray.shutdown()
+    wandb.finish()
