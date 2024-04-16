@@ -20,19 +20,20 @@ from src.gym_env_rlot.buy_sell.gym_env_utils import (
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 # artifact_path = (
-#     "/Users/jeroenvanlier/Documents/Github/gym-env-rlot/artifacts/percentage_bin:v3"
+#     '/Users/jeroenvanlier/Documents/Github/gym-env-rlot/artifacts/desc_stats_nounderlying:v0'
 # )
 
 
 def load_data(
-    artifact_path,
-    ticker,
-    test_train,
-    test_size,
-    noise_factor,
+    artifact_path: str,
+    ticker: str,
+    test_train: str,
 ):
-    data_dir = os.path.join(artifact_path, "train", ticker)
-    # load data from .pkl
+    if test_train not in ["train", "test1", "test2"]:
+        raise ValueError("Invalid test_train")
+
+    data_dir = os.path.join(artifact_path, "data", ticker)
+
     if test_train == "train":
         with open(os.path.join(data_dir, "train_data.pkl"), "rb") as f:
             data = pickle.load(f)
@@ -48,38 +49,37 @@ def load_data(
     return data
 
 
+def get_feature_names(artifact_path: str, ticker: str):
+    model_path = os.path.join(artifact_path, "model", ticker, "columns.pkl")
+    with open(model_path, "rb") as f:
+        feature_names = pickle.load(f)
+    feature_names = list(feature_names)
+    return feature_names
+
+
 class BuySellUndEnv(gym.Env):
     def __init__(self, config):
         super(BuySellUndEnv, self).__init__()
 
         self.test_train = config["test_train"]
+        self.ticker = config["ticker"]
+        self.artifact_path = config["artifact_path"]
 
-        if self.test_train not in ["train", "test", "all"]:
-            raise ValueError("Invalid test_train")
-        if self.test_train == "train":
-            self.noise_factor = 0.05
-            self.observation_noise_std = 0.035
-        else:
-            self.noise_factor = 0.0
-            self.observation_noise_std = 0.0
-
+        self.noise_factor = 0.0
+        self.observation_noise_std = 0.0
         self.max_episode_steps = 500
 
-        self.data, self.scaler_price, self.feature_names = load_data(
-            config["artifact_path"],
-            self.test_train,
-            test_size=self.max_episode_steps + 1,
-            noise_factor=self.noise_factor,
-        )
-        self.feature_names += ["in_trade", "in_price", "pl"]
-        if self.test_train == "all":
-            self.max_episode_steps = len(self.data) - 1
+        if self.test_train == "train":
+            self.noise_factor = 0.05
+            self.observation_noise_std = 0.05
+
+        self.data = load_data(self.artifact_path, self.ticker, self.test_train)
+        self.feature_names = get_feature_names(self.artifact_path, self.ticker)
+        self.feature_names += ["pl","in_trade"]  # removed the "in_price" feature
         self.action_space = Discrete(2)
+        
         self.observation_space = Box(
-            low=-1.0,
-            high=1.0,
-            shape=(len(self.data[0]["scaled"]) + 3,),
-            dtype=np.float32,
+            low=-1.0, high=1.0, shape=(len(self.feature_names),), dtype=np.float32
         )
 
     def obs_(
@@ -87,24 +87,18 @@ class BuySellUndEnv(gym.Env):
     ):
         pl = 0.0
         if self.in_trade == 1:
-            in_tr = 1
-            in_price = self.scaler_price.transform(
-                self.entry_market_price.reshape(-1, 1)
-            )[0][0]
             pl = self.pl
             if pl != 0.0:
                 pl = np.clip((pl / 500) - 1, -1, 1)
-        else:
-            in_tr = -1
-            in_price = 0
 
-        self.observation = self.data[self.position]["scaled"]
+
+        self.observation = self.data[self.position]["data"]
         if self.test_train == "train":
             self.observation += np.random.normal(
                 0, self.observation_noise_std, len(self.observation)
             )
             self.observation = np.clip(self.observation, -1, 1)
-        self.observation = np.append(self.observation, [in_tr, in_price, pl])
+        self.observation = np.append(self.observation, [self.in_trade, pl])
         return self.observation
 
     def step(self, action):
@@ -191,18 +185,8 @@ class BuySellUndEnv(gym.Env):
         self.drawdown_adjusted = calculate_maximum_drawdown(
             self.running_pl_adjusted_list
         )
-        # self.sharpe_ratio = calculate_sharpe_ratio(self.running_pl_list)
-        # self.sortino_ratio = calculate_sortino_ratio(self.running_pl_list)
-        # self.calmar_ratio = calculate_calmar_ratio(self.running_pl_list)
 
-        # REWARD TIME
-
-        # self.reward -= self.drawdown
         self.reward -= self.drawdown_adjusted
-
-        # self.reward += self.sharpe_ratio * 30
-        # self.reward += self.sortino_ratio
-        # self.reward -= self.calmar_ratio
         self.reward = round(self.reward, 6)
 
         truncated = False
@@ -210,19 +194,17 @@ class BuySellUndEnv(gym.Env):
 
         return self.obs_(), round(self.reward, 10), self.done, truncated, info
 
-    def reset(self, *, seed=None, options=None):
+    def reset(self, *, seed=42, options=None):
         self.steps = 0
         self.in_trade = 0
+        self.position = 0
+
+        # set the start position to a random position in the data
         if self.test_train == "train":
-            self.start_position = np.random.randint(
+            self.position = np.random.randint(
                 0, len(self.data) - self.max_episode_steps
             )
-        elif (self.test_train == "test") or (self.test_train == "all"):
-            self.start_position = 0
-        else:
-            raise ValueError("Invalid test_train")
 
-        self.position = self.start_position
         self.total_pl = 0.0
         self.total_trades = 0
         self.trade_pl = 0.0
@@ -273,8 +255,9 @@ class BuySellUndEnv(gym.Env):
 
 if __name__ == "__main__":
     config = {
-        "artifact_path": "/Users/jeroenvanlier/Documents/Github/gym-env-rlot/artifacts/percentage_bin_nounderlying_staggered:v0",
+        "artifact_path": "/Users/jeroenvanlier/Documents/Github/gym-env-rlot/artifacts/desc_stats_nounderlying:v0",
         "test_train": "train",
+        "ticker": "SPY",
     }
 
     env = BuySellUndEnv(config)

@@ -40,7 +40,7 @@ class MultiEnv(gym.Env):
 
 check_point_path = os.path.join(os.getcwd(), "models", "PPO")
 artifact_file_name = "jeroencvlier/rlot-data-pipeline/desc_stats_nounderlying:latest"
-project_name = "PPO-tune-v3"
+project_name = "PPO-tune-v0"
 
 artifact_path = data_artifact_download(artifact_file_name)
 ray.init(ignore_reinit_error=True, num_cpus=11, num_gpus=0)
