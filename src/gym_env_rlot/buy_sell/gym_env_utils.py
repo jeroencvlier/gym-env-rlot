@@ -17,7 +17,7 @@ def calculate_maximum_drawdown(cumulative_pnl):
             if drawdown > maximum_drawdown:
                 maximum_drawdown = drawdown
 
-    return np.round(maximum_drawdown, 3)
+    return -np.round(maximum_drawdown, 6)
 
 
 def calculate_sharpe_ratio(cumulative_pnl, risk_free_rate=0.05, clip=True):

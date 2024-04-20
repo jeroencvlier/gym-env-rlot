@@ -137,10 +137,3 @@ def backtest_proba(
 
     return test_metrics
 
-
-def data_artifact_download(artifact_version):
-    # "delta_bin:v0", "percentage_bin:v1"
-    wandb.init(project="rlot", job_type="artifact download")
-    artifact_path = wandb.use_artifact(artifact_version).download()
-    wandb.finish()
-    return artifact_path
